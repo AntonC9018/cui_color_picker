@@ -27,6 +27,7 @@ RectTransform:
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 22454790}
   - {fileID: 22454786}
@@ -51,14 +52,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d67fe8cf2682634429a82e70367b1350, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  saturationValue: {fileID: 154786}
-  saturationValueKnob: {fileID: 154792}
-  hue: {fileID: 154788}
-  hueKnob: {fileID: 154794}
-  result: {fileID: 154790}
-  color: {r: 1, g: 1, b: 1, a: 1}
-  inputMethod: 0
-  onValueChanged:
+  _saturationValueImage: {fileID: 11454786}
+  _saturationValueKnobTransform: {fileID: 22454792}
+  _hueImage: {fileID: 11454788}
+  _hueKnobTransform: {fileID: 22454794}
+  _resultImage: {fileID: 11454790}
+  _initialColor: {r: 1, g: 1, b: 1, a: 1}
+  _usedInputMethod: 0
+  _onValueChangedEvent:
     m_PersistentCalls:
       m_Calls: []
 --- !u!1 &154786
@@ -73,7 +74,7 @@ GameObject:
   - component: {fileID: 22254786}
   - component: {fileID: 11454786}
   m_Layer: 5
-  m_Name: SaturationValue
+  m_Name: saturation_value
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -89,6 +90,7 @@ RectTransform:
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 22454792}
   m_Father: {fileID: 22454784}
@@ -149,7 +151,7 @@ GameObject:
   - component: {fileID: 22254788}
   - component: {fileID: 11454788}
   m_Layer: 5
-  m_Name: Hue
+  m_Name: hue
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -165,6 +167,7 @@ RectTransform:
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 22454794}
   m_Father: {fileID: 22454784}
@@ -225,7 +228,7 @@ GameObject:
   - component: {fileID: 22254790}
   - component: {fileID: 11454790}
   m_Layer: 5
-  m_Name: Result
+  m_Name: result
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -241,6 +244,7 @@ RectTransform:
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 22454784}
   m_RootOrder: 0
@@ -301,7 +305,7 @@ GameObject:
   - component: {fileID: 11454792}
   - component: {fileID: 11498382}
   m_Layer: 5
-  m_Name: Knob
+  m_Name: saturation_value_knob
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -317,6 +321,7 @@ RectTransform:
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 22454786}
   m_RootOrder: 0
@@ -389,7 +394,7 @@ GameObject:
   m_Component:
   - component: {fileID: 22454794}
   m_Layer: 5
-  m_Name: Knob
+  m_Name: hue_knobs
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -405,6 +410,7 @@ RectTransform:
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 22474496}
   - {fileID: 22474494}
@@ -445,6 +451,7 @@ RectTransform:
   m_LocalRotation: {x: 0, y: 0, z: 0.7071068, w: 0.7071068}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 22454794}
   m_RootOrder: 1
@@ -536,6 +543,7 @@ RectTransform:
   m_LocalRotation: {x: 0, y: 0, z: -0.7071068, w: 0.7071068}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 22454794}
   m_RootOrder: 0

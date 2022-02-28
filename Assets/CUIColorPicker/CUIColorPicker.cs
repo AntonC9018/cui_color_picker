@@ -1,73 +1,62 @@
+// Licensed under MIT.
+// Copyright (c) 2016 Snapshot Games Inc.
+// See https://github.com/AntonC9018/cui_color_picker
 using System;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
 
-namespace Linux1230.ColorPicker
+namespace EngineCommon.ColorPicker
 {
+    public struct HSV
+    {
+        public float hue;
+        public float saturation;
+        public float value;
+    }
+    public struct ColorInBothFormats
+    {
+        public Color rgb;
+        public HSV hsv;
+    }
+
     public class CUIColorPicker : MonoBehaviour
     {
-        [SerializeField]
-        private GameObject saturationValue;
-        [SerializeField]
-        private GameObject saturationValueKnob;
-        [SerializeField]
-        private GameObject hue;
-        [SerializeField]
-        private GameObject hueKnob;
-        [SerializeField]
-        private GameObject result;
-        [SerializeField]
-        private Color color = Color.white;
-        [SerializeField]
-        private InputMethod inputMethod;
+        [SerializeField] private Image _saturationValueImage;
+        // Inferred from the above.
+        private RectTransform _saturationValueRectTransform;
 
-        [Space]
-        public UnityEvent<Color> onValueChanged;
+        [SerializeField] private RectTransform _saturationValueKnobTransform;
+        // Inferred from the above.
+        private RectTransform _hueRectTransform;
 
-        private Action update;
-        private Color[] hueColors;
-        private Color[] saturationValueColors;
-        private Texture2D hueTexture;
-        private Texture2D saturationValueTexture;
-        private Vector2 hueSize;
-        private Vector2 saturationValueSize;
-        private Touch touch;
-        private Vector3 inputPoint;
+        [SerializeField] private Image _hueImage;
+        [SerializeField] private RectTransform _hueKnobTransform;
+        [SerializeField] private Image _resultImage = null;
+        [SerializeField] private Color _initialColor = Color.white;
 
-        private enum InputMethod { Mouse, Touch }
-
-        public Color Color
+        private enum InputMethod
         {
-            get
-            {
-                return color;
-            }
-
-            set
-            {
-                color = value;
-            }
+            Mouse,
+            Touch,
         }
+        [SerializeField] private InputMethod _usedInputMethod = InputMethod.Mouse;
 
-        private void Awake()
+        [Space] public UnityEvent<ColorInBothFormats> _onValueChangedEvent;
+
+
+        private enum DragState
         {
-            if (saturationValue == null)
-                throw new Exception("The saturationValue can't be null");
+            Idle,
+            DragHue,
+            DragSV,
+        }
+        private DragState _currentDragState;
 
-            if (saturationValueKnob == null)
-                throw new Exception("The saturationValueKnob can't be null");
-
-            if (hue == null)
-                throw new Exception("The hue can't be null");
-
-            if (hueKnob == null)
-                throw new Exception("The hueKnob can't be null");
-
-            if (result == null)
-                throw new Exception("The result can't be null");
-
-            hueColors = new Color[] {
+        // The elements are immutable.
+        private static readonly Color[] _HueColors = new Color[]
+        {
             Color.red,
             Color.yellow,
             Color.green,
@@ -76,187 +65,386 @@ namespace Linux1230.ColorPicker
             Color.magenta,
         };
 
-            saturationValueColors = new Color[] {
-            new Color( 0, 0, 0 ),
-            new Color( 0, 0, 0 ),
-            new Color( 1, 1, 1 ),
-            hueColors[0],
+        // The elements are immutable.
+        private static readonly Color[] _ConstantInterpolationColors = new Color[]
+        {
+            new Color(0, 0, 0),
+            new Color(0, 0, 0),
+            new Color(1, 1, 1),
         };
 
-            hueTexture = new Texture2D(1, 7);
+        // The last color from which the texture is made is the only one that changes.
+        private Color _lastInterpolatedColor;
+        
+        // Internally, the color is stored as HSV, 
+        // but we give the converted color as a value passed to the callback.
+        private HSV _currentColor;
+
+        // The texture applied to the saturation-value input area.
+        // The texture present in that image will be overwritten.
+        private Texture2D _saturationValueTexture;
+
+
+        /// <summary>
+        /// Returns the current color in RGB format.
+        /// You should cache the result of the getter, it does a computation.
+        /// The setter fires the callbacks as well as resets the knob positions.
+        /// </summary>
+        Color ColorRGB
+        {
+            get
+            {
+                return InterpolateColors(
+                    _currentColor.saturation, _currentColor.value, _lastInterpolatedColor);
+            }
+
+            set
+            {
+                ResetToColor(value);
+
+                // Do we want to fire these?
+                _onValueChangedEvent?.Invoke(
+                    new ColorInBothFormats
+                    {
+                        hsv = _currentColor,
+                        rgb = value,   
+                    });
+            }
+        }
+
+        /// <summary>
+        /// Gets the current color, in HSV format.
+        /// </summary>
+        HSV ColorHSV
+        {
+            get
+            {
+                return _currentColor;
+            }
+
+            set
+            {
+                ResetToColor(value);
+            }
+        }
+
+
+        private void Awake()
+        {
+            Debug.Assert(_saturationValueImage != null);
+            Debug.Assert(_saturationValueKnobTransform != null);
+            Debug.Assert(_hueImage != null);
+            Debug.Assert(_hueKnobTransform != null);
+
+            // We allow null for this one.
+            // Debug.Assert(_resultImage != null);
+            
+            // wtf?? Isn't it always those two
+            Debug.Assert(
+                _usedInputMethod == InputMethod.Touch
+                || _usedInputMethod == InputMethod.Mouse,
+                "Only touch or mouse supported");
+
+            _lastInterpolatedColor = _HueColors[0];
+
+            var hueTexture = new Texture2D(1, 7);
             for (int i = 0; i < 7; i++)
-                hueTexture.SetPixel(0, i, hueColors[i % 6]);
+                hueTexture.SetPixel(0, i, _HueColors[i % 6]);
             hueTexture.Apply();
 
-            saturationValueTexture = new Texture2D(2, 2);
+            _hueImage.sprite = Sprite.Create(
+                hueTexture, new Rect(0, 0.5f, 1, 6), new Vector2(0.5f, 0.5f));
+            _hueRectTransform = ((RectTransform) _hueImage.transform);
 
-            hue.GetComponent<Image>().sprite = Sprite.Create(hueTexture, new Rect(0, 0.5f, 1, 6), new Vector2(0.5f, 0.5f));
-            hueSize = ((RectTransform)hue.transform).rect.size;
-
-            saturationValue.GetComponent<Image>().sprite = Sprite.Create(saturationValueTexture, new Rect(0.5f, 0.5f, 1, 1), new Vector2(0.5f, 0.5f));
-            saturationValueSize = ((RectTransform)saturationValue.transform).rect.size;
-
-            inputPoint = Vector3.zero;
+            _saturationValueTexture = new Texture2D(2, 2);
+            _saturationValueImage.sprite = Sprite.Create(
+                _saturationValueTexture, new Rect(0.5f, 0.5f, 1, 1), new Vector2(0.5f, 0.5f));
+            _saturationValueRectTransform = ((RectTransform) _saturationValueImage.transform);
         }
 
         private void Update()
         {
-            if (gameObject.activeSelf)
-                update();
+            if (!gameObject.activeSelf)
+                return;
+
+            // The touch object is used if the input method is set to Touch.
+            // It's a pretty large struct, but it's not readonly, hence I'm passing it by ref.
+            Touch touch = default;
+            if (_usedInputMethod == InputMethod.Touch)
+            {
+                if (Input.touchCount != 1)
+                    return;
+                touch = Input.GetTouch(0);
+            }
+
+            switch (_currentDragState)
+            {
+                case DragState.Idle:
+                {
+                    if (!GetInputDown(_usedInputMethod, ref touch))
+                        break;
+
+                    // Start dragging the corresponding color thing
+                    {
+                        if (IsMouseWithin(_hueRectTransform, _usedInputMethod, ref touch))
+                            _currentDragState = DragState.DragHue;
+
+                        else if (IsMouseWithin(_saturationValueRectTransform, _usedInputMethod, ref touch))
+                            _currentDragState = DragState.DragSV;
+
+                        static bool IsMouseWithin(RectTransform transform, InputMethod inputMethod, ref Touch touch)
+                        {
+                            Vector2 mousePosition = GetLocalInput(transform, inputMethod, ref touch);
+                            return transform.rect.Contains(mousePosition);
+                        }
+                    }
+
+                    break;
+                }
+
+                case DragState.DragHue:
+                {
+                    var clampedMousePosition = GetClampedLocalInput(_hueRectTransform, _usedInputMethod, ref touch);
+
+                    {
+                        var hueSize = _hueRectTransform.rect.size;
+                        float hue = clampedMousePosition.y / hueSize.y * 6;
+
+                        if (hue != _currentColor.hue)
+                        {
+                            var newLastColor = CalculateLastColor(hue);
+
+                            // This could possibly not change if the mouse displacement was tiny, maybe?
+                            if (newLastColor != _lastInterpolatedColor)
+                            {
+                                HSV colorToSend = new HSV
+                                {
+                                    hue = hue,
+                                    saturation = _currentColor.saturation,
+                                    value = _currentColor.value,
+                                };
+                                ApplySaturationValue(colorToSend, newLastColor);
+
+                                _lastInterpolatedColor = newLastColor;
+                            }
+                            _currentColor.hue = hue;
+                        }
+                    }
+
+                    _hueKnobTransform.localPosition = new Vector2(_hueKnobTransform.localPosition.x, clampedMousePosition.y);
+
+                    // A final callback may be desirable?
+                    if (GetInputUp(_usedInputMethod, ref touch))
+                        _currentDragState = DragState.Idle;
+                    
+                    break;
+                }
+
+                case DragState.DragSV:
+                {
+                    var clampedMousePosition = GetClampedLocalInput(_saturationValueRectTransform, _usedInputMethod, ref touch);
+
+                    {
+                        var saturationValueSize = _saturationValueRectTransform.rect.size;
+                        float saturation = clampedMousePosition.x / saturationValueSize.x;
+                        float value = clampedMousePosition.y / saturationValueSize.y;
+
+                        if (saturation != _currentColor.saturation
+                            || value != _currentColor.value)
+                        {
+                            HSV newColor = new HSV
+                            {
+                                hue = _currentColor.hue,
+                                saturation = saturation,
+                                value = value,
+                            };
+                            ApplySaturationValue(newColor, _lastInterpolatedColor);
+                            
+                            _currentColor = newColor;
+                        }
+                    }
+
+                    // I think it can change even without the color changing.
+                    _saturationValueKnobTransform.localPosition = clampedMousePosition;
+
+                    // A final callback may be desirable?
+                    if (GetInputUp(_usedInputMethod, ref touch))
+                        _currentDragState = DragState.Idle;
+
+                    break;
+                }
+            }
+            
+
+            static bool GetInputUp(InputMethod inputMethod, ref Touch touch)
+            {
+                switch (inputMethod)
+                {
+                    case InputMethod.Mouse:
+                        return Input.GetMouseButtonUp(0);
+
+                    case InputMethod.Touch:
+                    {
+                        return touch.phase == TouchPhase.Ended
+                            || touch.phase == TouchPhase.Canceled;
+                    }
+
+                    default:
+                    {
+                        Debug.Assert(false);
+                        return false;
+                    }
+                }
+            }
+
+            static bool GetInputDown(InputMethod inputMethod, ref Touch touch)
+            {
+                switch (inputMethod)
+                {
+                    case InputMethod.Mouse:
+                        return Input.GetMouseButtonDown(0);
+
+                    case InputMethod.Touch:
+                    {
+                        return touch.phase != TouchPhase.Ended
+                            && touch.phase != TouchPhase.Canceled;
+                    }
+
+                    default:
+                    {
+                        Debug.Assert(false);
+                        return false;
+                    }
+                }
+            }
+
+            static Vector2 GetLocalInput(RectTransform rectTransform, InputMethod inputMethod, ref Touch touch)
+            {
+                switch (inputMethod)
+                {
+                    case InputMethod.Mouse:
+                    {
+                        return rectTransform.InverseTransformPoint(Input.mousePosition);
+                    }
+
+                    case InputMethod.Touch:
+                    {
+                        return rectTransform.InverseTransformPoint(touch.position);
+                    }
+
+                    default:
+                    {
+                        Debug.Assert(false, "The only allowed input methods are mouse and touch.");
+                        break;
+                    }
+                }
+                return Vector3.positiveInfinity;
+            }
+
+            static Vector2 ClampToRectBounds(Vector2 input, Rect rect)
+            {
+                var min = rect.min;
+                var max = rect.max;
+
+                return new Vector2(
+                    x: Mathf.Clamp(input.x, min.x, max.x),
+                    y: Mathf.Clamp(input.y, min.y, max.y));
+            }
+            
+            static Vector2 GetClampedLocalInput(RectTransform rectTransform, InputMethod inputMethod, ref Touch touch)
+            {
+                var unclampedMousePosition = GetLocalInput(rectTransform, inputMethod, ref touch);
+                return ClampToRectBounds(unclampedMousePosition, rectTransform.rect);
+            }
         }
 
         private void Start()
         {
-            Color.RGBToHSV(color, out float colorHue, out float colorSaturation, out float colorValue);
-
-            ApplyHue(colorHue);
-            ApplySaturationValue(colorSaturation, colorValue);
-
-            saturationValueKnob.transform.localPosition = new Vector2(colorSaturation * saturationValueSize.x, colorValue * saturationValueSize.y);
-            hueKnob.transform.localPosition = new Vector2(hueKnob.transform.localPosition.x, colorHue / 6 * saturationValueSize.y);
-
-            Action dragH = null;
-            Action dragSV = null;
-
-            Action idle = () =>
+            // Set the first 4 pixels, the last one gets reset in the method below
             {
-                if (GetInputDown())
-                {
-                    if (GetLocalInput(hue, out Vector2 mp))
-                        update = dragH;
-                    else if (GetLocalInput(saturationValue, out mp))
-                        update = dragSV;
-                }
-            };
-
-            dragH = () =>
-            {
-                GetLocalInput(hue, out Vector2 mp);
-                colorHue = mp.y / hueSize.y * 6;
-                ApplyHue(colorHue);
-                ApplySaturationValue(colorSaturation, colorValue);
-                hueKnob.transform.localPosition = new Vector2(hueKnob.transform.localPosition.x, mp.y);
-                if (GetInputUp())
-                {
-                    update = idle;
-                }
-            };
-
-            dragSV = () =>
-            {
-                GetLocalInput(saturationValue, out Vector2 mp);
-                colorSaturation = mp.x / saturationValueSize.x;
-                colorValue = mp.y / saturationValueSize.y;
-                ApplySaturationValue(colorSaturation, colorValue);
-                saturationValueKnob.transform.localPosition = mp;
-                if (GetInputUp())
-                {
-                    update = idle;
-                }
-            };
-
-            update = idle;
+                _saturationValueTexture.SetPixel(0, 0, _ConstantInterpolationColors[0]);
+                _saturationValueTexture.SetPixel(0, 1, _ConstantInterpolationColors[1]);
+                _saturationValueTexture.SetPixel(1, 0, _ConstantInterpolationColors[2]);
+            }
+            ResetToColor(_initialColor);
         }
 
-        private void ResetSaturationValueTexture()
+        private void ResetToColor(Color colorRGB)
         {
-            for (int j = 0; j < 2; j++)
-                for (int i = 0; i < 2; i++)
-                    saturationValueTexture.SetPixel(i, j, saturationValueColors[i + j * 2]);
-            saturationValueTexture.Apply();
+            HSV colorHSV;
+            Color.RGBToHSV(colorRGB, out colorHSV.hue, out colorHSV.saturation, out colorHSV.value);
+            ResetToColor(colorHSV);
         }
 
-        private void ApplyHue(float colorHue)
+        private void ResetToColor(HSV colorHSV)
         {
-            int i0 = Mathf.Clamp((int)colorHue, 0, 5);
-            int i1 = (i0 + 1) % 6;
-            Color resultColor = Color.Lerp(hueColors[i0], hueColors[i1], colorHue - i0);
-            saturationValueColors[3] = resultColor;
-            ResetSaturationValueTexture();
+            var lastColorRGB = CalculateLastColor(colorHSV.hue);
+            UpdateTextureToLastColor(lastColorRGB);
+
+            var newColorRGB = InterpolateColors(colorHSV.saturation, colorHSV.value, lastColorRGB);
+
+            if (_resultImage != null)
+                _resultImage.color = newColorRGB;
+
+            _lastInterpolatedColor = lastColorRGB;
+
+            var saturationValueSize = _saturationValueRectTransform.rect.size;
+            _saturationValueKnobTransform.localPosition = new Vector2(
+                colorHSV.saturation * saturationValueSize.x, colorHSV.value * saturationValueSize.y);
+            _hueKnobTransform.localPosition = new Vector2(
+                _hueKnobTransform.localPosition.x, colorHSV.hue / 6 * saturationValueSize.y);
+
+            _currentColor = colorHSV;
         }
 
-        private void ApplySaturationValue(float colorSaturation, float colorValue)
+        private static Color CalculateLastColor(float colorHue)
+        {
+            int i0 = Mathf.Clamp((int) colorHue, 0, _HueColors.Length - 1);
+            int i1 = (i0 + 1) % _HueColors.Length;
+            return Color.Lerp(_HueColors[i0], _HueColors[i1], colorHue - i0);
+        }
+
+        private void UpdateTextureToLastColor(Color newLastInterpolationColor)
+        {
+            // The bottom-right coordinate is the only non-constant one.
+            _saturationValueTexture.SetPixel(1, 1, newLastInterpolationColor);
+            _saturationValueTexture.Apply();
+        }
+
+        // TODO: read this math
+        private static Color InterpolateColors(float colorSaturation, float colorValue, Color lastInterpolatedColor)
         {
             Vector2 sv = new Vector2(colorSaturation, colorValue);
             Vector2 isv = new Vector2(1 - sv.x, 1 - sv.y);
-            Color c0 = isv.x * isv.y * saturationValueColors[0];
-            Color c1 = sv.x * isv.y * saturationValueColors[1];
-            Color c2 = isv.x * sv.y * saturationValueColors[2];
-            Color c3 = sv.x * sv.y * saturationValueColors[3];
+            Color c0 = isv.x * isv.y * _ConstantInterpolationColors[0];
+            Color c1 = sv.x * isv.y * _ConstantInterpolationColors[1];
+            Color c2 = isv.x * sv.y * _ConstantInterpolationColors[2];
+            Color c3 = sv.x * sv.y * lastInterpolatedColor;
             Color resultColor = c0 + c1 + c2 + c3;
-            Image resultImage = result.GetComponent<Image>();
-            resultImage.color = resultColor;
-            if (color != resultColor)
-            {
-                onValueChanged?.Invoke(resultColor);
-                color = resultColor;
-            }
+            return resultColor;
         }
 
-        private bool GetLocalInput(GameObject go, out Vector2 result)
+        private void ApplySaturationValue(HSV colorToSend, Color lastInterpolationColor)
         {
-            RectTransform rt = (RectTransform)go.transform;
-            switch (inputMethod)
-            {
-                case InputMethod.Mouse:
-                    inputPoint = rt.InverseTransformPoint(Input.mousePosition);
-                    break;
-                case InputMethod.Touch:
-                    if (Input.touchCount == 1)
-                    {
-                        touch = Input.GetTouch(0);
+            // Can only ever hit this if the mouse didn't move, so it should be handled in the Update.
+            Debug.Assert(_currentColor.saturation != colorToSend.saturation
+                || _currentColor.value != colorToSend.value
+                || _lastInterpolatedColor != lastInterpolationColor,
+                "Only invoke ApplySaturationValue after having checked if the color parameters have changed.");
 
-                        if (touch.phase != TouchPhase.Ended && touch.phase != TouchPhase.Canceled)
-                            inputPoint = rt.InverseTransformPoint(touch.position);
-                    }
-                    break;
-                default:
-                    break;
-            }
-            result.x = Mathf.Clamp(inputPoint.x, rt.rect.min.x, rt.rect.max.x);
-            result.y = Mathf.Clamp(inputPoint.y, rt.rect.min.y, rt.rect.max.y);
-            return rt.rect.Contains(inputPoint);
-        }
+            Color newColor = InterpolateColors(colorToSend.saturation, colorToSend.value, lastInterpolationColor);
+            UpdateTextureToLastColor(lastInterpolationColor);
+            
+            if (_resultImage != null)
+                _resultImage.color = newColor;
 
-        private bool GetInputUp()
-        {
-            switch (inputMethod)
-            {
-                case InputMethod.Mouse:
-                    return Input.GetMouseButtonUp(0);
-                case InputMethod.Touch:
-                    if (Input.touchCount == 1)
-                    {
-                        touch = Input.GetTouch(0);
 
-                        if (touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled)
-                            return true;
-                    }
-                    return false;
-                default:
-                    return false;
-            }
-        }
-
-        private bool GetInputDown()
-        {
-            switch (inputMethod)
-            {
-                case InputMethod.Mouse:
-                    return Input.GetMouseButtonDown(0);
-                case InputMethod.Touch:
-                    if (Input.touchCount == 1)
-                    {
-                        touch = Input.GetTouch(0);
-
-                        if (touch.phase != TouchPhase.Ended && touch.phase != TouchPhase.Canceled)
-                            return true;
-                    }
-                    return false;
-                default:
-                    return false;
-            }
+            _onValueChangedEvent?.Invoke(
+                new ColorInBothFormats
+                {
+                    hsv = colorToSend,
+                    rgb = newColor,   
+                });
         }
     }
-
 }
